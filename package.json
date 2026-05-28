@@ -3,14 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "concurrently \"pnpm dev:ui\" \"pnpm dev:agent\" --names ui,agent --prefix-colors blue,green --kill-others",
+    "dev": "pnpm doctor && concurrently \"pnpm dev:ui\" \"pnpm dev:agent\" --names ui,agent --prefix-colors blue,green --kill-others",
     "dev:debug": "LOG_LEVEL=debug pnpm dev",
     "dev:ui": "next dev --turbopack",
     "dev:agent": "./scripts/run-agent.sh || scripts\\run-agent.bat",
     "build": "next build",
     "start": "next start",
     "install:agent": "./scripts/setup-agent.sh || scripts\\setup-agent.bat",
-    "postinstall": "pnpm install:agent"
+    "postinstall": "pnpm install:agent && ./scripts/sync-memory-files.sh || true",
+    "doctor": "tsx scripts/doctor.ts",
+    "validate-widget": "tsx scripts/validate-widget.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "verify-pins": "./scripts/verify-pins.sh",
+    "explain": "tsx scripts/explain.ts",
+    "new-widget": "./scripts/new-widget.sh",
+    "theme:reset": "tsx scripts/theme-reset.ts",
+    "test:widgets": "tsx scripts/test-widgets.ts"
   },
   "dependencies": {
     "@copilotkit/a2ui-renderer": "1.56.5",
@@ -38,7 +46,9 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "concurrently": "^9.1.2",
+    "lefthook": "^1.7.18",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "typescript": "^5"
   }
 }
