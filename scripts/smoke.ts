@@ -4,15 +4,14 @@
  *
  * Runs (in order, failing fast):
  *   1. `pnpm verify-pins`               — lockfile / package.json drift
- *   2. `pnpm validate-widget` over every *.json in agent/src/widgets/ (if exists)
- *   3. `pnpm test:widgets`              — fixture renderer pass (no-op pre-E)
- *   4. OFFLINE=1 envelope shape check   — assert public/offline-envelopes.json renders
- *   5. (TODO) Boot + canned prompt      — see note inline; reaches into the LangGraph
- *                                          dev server which is a bigger lift than the
- *                                          script-suite scope. Today we run a one-shot
- *                                          tool-call probe against the Gemini endpoint
- *                                          as a stand-in for "the agent can talk to the
- *                                          model and get a tool call back".
+ *   2. `pnpm validate-widget --examples`— other-examples/EXAMPLE.json files (plan section 3.2)
+ *   3. `pnpm validate-widget` over every JSON in agent/src/widgets/ (issues #2/#3)
+ *   4. `pnpm test:widgets`              — fixture renderer pass (delegates to validator)
+ *   5. OFFLINE=1 envelope shape check   — assert public/offline-envelopes.json structure
+ *      (validates BOTH byPrompt and bySurface indices land — plan section 6.6)
+ *   6. agent registration probe         — python -c probe for each langgraph.json
+ *      graph (sample_agent + legal_review_agent — plan section 6.1 fix)
+ *   7. Gemini probe (live)              — skipped when OFFLINE=1 or no key
  *
  * Exit non-zero if any step fails. Machine-parsable summary at the end.
  */
@@ -49,9 +48,9 @@ function pnpmRun(scriptName: string, ...args: string[]): { pass: boolean; detail
   };
 }
 
-function shellRun(cmd: string, args: string[]): { pass: boolean; detail: string } {
+function shellRun(cmd: string, args: string[], opts: { cwd?: string } = {}): { pass: boolean; detail: string } {
   const res = spawnSync(cmd, args, {
-    cwd: REPO_ROOT,
+    cwd: opts.cwd ?? REPO_ROOT,
     stdio: "inherit",
     env: { ...process.env, FORCE_COLOR: "1" },
   });
@@ -77,6 +76,26 @@ function findWidgetJsons(): string[] {
   return out;
 }
 
+/**
+ * Read langgraph.json and return the list of (graphName, pathSpec) pairs.
+ * pathSpec is the raw `./main.py:graph` style string, relative to the
+ * langgraph.json file's directory.
+ */
+function readGraphSpec(): { name: string; spec: string }[] | null {
+  const path = join(REPO_ROOT, "agent", "langgraph.json");
+  if (!existsSync(path)) return null;
+  try {
+    const cfg = JSON.parse(readFileSync(path, "utf-8"));
+    if (!cfg.graphs || typeof cfg.graphs !== "object") return null;
+    return Object.entries(cfg.graphs).map(([name, spec]) => ({
+      name,
+      spec: String(spec),
+    }));
+  } catch {
+    return null;
+  }
+}
+
 const STEPS: Step[] = [
   {
     name: "verify-pins",
@@ -84,12 +103,27 @@ const STEPS: Step[] = [
       shellRun(join(REPO_ROOT, "scripts", "verify-pins.sh"), []),
   },
   {
+    name: "validate-widget --examples (other-examples/*/EXAMPLE.json)",
+    run: async () => {
+      const validateScript = join(REPO_ROOT, "scripts", "validate-widget.ts");
+      const res = spawnSync(
+        "pnpm",
+        ["exec", "tsx", validateScript, "--examples"],
+        { cwd: REPO_ROOT, stdio: "inherit", env: { ...process.env, FORCE_COLOR: "1" } },
+      );
+      return {
+        pass: res.status === 0,
+        detail: res.status === 0 ? "EXAMPLE.json files validated" : `failed (exit ${res.status})`,
+      };
+    },
+  },
+  {
     name: "validate-widget over agent/src/widgets/",
     run: async () => {
       const widgets = findWidgetJsons();
       if (widgets.length === 0) {
         console.log(
-          `${YELLOW}!${RESET} ${DIM}No widget JSONs to validate yet (E in flight).${RESET}\n`,
+          `${YELLOW}!${RESET} ${DIM}No widget JSONs to validate yet.${RESET}\n`,
         );
         return { pass: true, detail: "skipped (no widgets)" };
       }
@@ -110,35 +144,179 @@ const STEPS: Step[] = [
     run: async () => pnpmRun("test:widgets"),
   },
   {
-    name: "OFFLINE=1 envelope shape check",
+    name: "OFFLINE=1 envelope shape check (byPrompt + bySurface)",
     run: async () => {
       const offlinePath = join(REPO_ROOT, "public", "offline-envelopes.json");
       if (!existsSync(offlinePath)) {
         console.log(
-          `${YELLOW}!${RESET} ${DIM}public/offline-envelopes.json not found yet (E in flight). Skipping.${RESET}\n`,
+          `${YELLOW}!${RESET} ${DIM}public/offline-envelopes.json not found.${RESET}\n`,
         );
         return { pass: true, detail: "skipped (no offline envelopes)" };
       }
       try {
         const raw = readFileSync(offlinePath, "utf-8");
         const parsed = JSON.parse(raw);
-        // Accept either an array of envelopes/operations or an object keyed by prompt.
-        // Just assert it parses and contains *something* that looks like A2UI:
-        // either "createSurface" or "surfaceId" must appear in the JSON.
-        if (!raw.includes("createSurface") && !raw.includes("surfaceId")) {
-          console.error(
-            `${RED}✗${RESET} public/offline-envelopes.json doesn't reference any A2UI envelope (no createSurface or surfaceId found).`,
+
+        // The new wrapper shape (plan §6.6) has byPrompt + bySurface.
+        // We accept the legacy flat shape too (just prompt-keyed) for back-compat.
+        const hasWrapper =
+          parsed && typeof parsed === "object" &&
+          (parsed.byPrompt || parsed.bySurface);
+
+        if (!hasWrapper) {
+          // Legacy shape — accept if it contains A2UI markers anywhere in the file.
+          if (!raw.includes("createSurface") && !raw.includes("surfaceId")) {
+            console.error(
+              `${RED}✗${RESET} public/offline-envelopes.json doesn't reference any A2UI envelope (no createSurface or surfaceId found).`,
+            );
+            return { pass: false, detail: "envelope check failed: no A2UI markers" };
+          }
+          console.log(
+            `${GREEN}✓${RESET} ${DIM}offline-envelopes.json parses and contains A2UI envelope markers (legacy shape).${RESET}\n`,
           );
-          return { pass: false, detail: "envelope check failed: no A2UI markers" };
+          return { pass: true, detail: "parsed (legacy shape)" };
+        }
+
+        // Wrapper shape — validate the bySurface map.
+        const bySurface = parsed.bySurface as Record<string, unknown> | undefined;
+        if (!bySurface || typeof bySurface !== "object") {
+          console.error(
+            `${RED}✗${RESET} offline-envelopes.json wrapper is missing 'bySurface' object.`,
+          );
+          return { pass: false, detail: "missing bySurface" };
+        }
+        const surfaceCount = Object.keys(bySurface).length;
+        if (surfaceCount === 0) {
+          console.error(
+            `${RED}✗${RESET} 'bySurface' is empty — at least one surface required.`,
+          );
+          return { pass: false, detail: "empty bySurface" };
+        }
+        for (const [surfaceId, envs] of Object.entries(bySurface)) {
+          if (!Array.isArray(envs) || envs.length === 0) {
+            console.error(
+              `${RED}✗${RESET} bySurface["${surfaceId}"] is not a non-empty array of envelopes.`,
+            );
+            return { pass: false, detail: `bad bySurface entry: ${surfaceId}` };
+          }
+        }
+        // Plan §6.6: contract-review surface MUST be present (B8 acceptance).
+        if (!("contract-review" in bySurface)) {
+          console.error(
+            `${RED}✗${RESET} bySurface missing required "contract-review" key (plan §6.6 acceptance).`,
+          );
+          return { pass: false, detail: "missing contract-review surface" };
         }
         console.log(
-          `${GREEN}✓${RESET} ${DIM}offline-envelopes.json parses and contains A2UI envelope markers.${RESET}\n`,
+          `${GREEN}✓${RESET} ${DIM}offline-envelopes.json wrapper valid (${surfaceCount} surface${surfaceCount === 1 ? "" : "s"} indexed: ${Object.keys(bySurface).join(", ")}).${RESET}\n`,
         );
-        return { pass: true, detail: `parsed and validated` };
+        return { pass: true, detail: `${surfaceCount} surfaces indexed` };
       } catch (e) {
         console.error(`${RED}✗${RESET} offline-envelopes.json is invalid JSON: ${(e as Error).message}`);
         return { pass: false, detail: "invalid JSON" };
       }
+    },
+  },
+  {
+    name: "agent registration probe (sample_agent + legal_review_agent)",
+    run: async () => {
+      // Per plan §6.1: assert both langgraph.json graph entries resolve to
+      // importable, well-formed agents. We boot `python -c "..."` against the
+      // agent's .venv so we don't depend on a running langgraph dev server —
+      // this is the deterministic check FRICTION #4 referenced.
+      const graphs = readGraphSpec();
+      if (!graphs || graphs.length === 0) {
+        console.log(
+          `${YELLOW}!${RESET} ${DIM}langgraph.json not found or has no graphs. Skipping.${RESET}\n`,
+        );
+        return { pass: true, detail: "skipped (no langgraph.json)" };
+      }
+      const venvPython = join(REPO_ROOT, "agent", ".venv", "bin", "python");
+      const pythonBin = existsSync(venvPython) ? venvPython : "python3";
+      if (!existsSync(venvPython)) {
+        console.log(
+          `${YELLOW}!${RESET} ${DIM}agent/.venv/bin/python not found — using system python3. Run \`pnpm install:agent\` to bootstrap.${RESET}\n`,
+        );
+      }
+      // Build a single Python invocation that loads each graph spec the same
+      // way langgraph CLI does (path-based spec_from_file_location). Match
+      // the existing dependency wiring in agent/langgraph.json — graphs are
+      // anchored to the agent/ working directory.
+      const agentDir = join(REPO_ROOT, "agent");
+      const graphPairs = graphs.map((g) => [g.name, g.spec]);
+      const script = `
+import sys, importlib.util, os
+from pathlib import Path
+
+failed = []
+for name, spec in ${JSON.stringify(graphPairs)}:
+    # spec looks like "./main.py:graph" or "../other-examples/.../graph.py:graph"
+    path_part, attr = spec.rsplit(":", 1)
+    # Resolve relative to agent/ (the langgraph.json dir).
+    abs_path = (Path(os.environ["AGENT_DIR"]) / path_part).resolve()
+    if not abs_path.exists():
+        failed.append((name, f"file not found: {abs_path}"))
+        continue
+    try:
+        mod_name = f"smoke_probe_{name}"
+        # Mirror langgraph's loader behavior — bypass package machinery.
+        spec_obj = importlib.util.spec_from_file_location(mod_name, str(abs_path))
+        if spec_obj is None or spec_obj.loader is None:
+            failed.append((name, "could not create module spec"))
+            continue
+        module = importlib.util.module_from_spec(spec_obj)
+        sys.modules[mod_name] = module
+        spec_obj.loader.exec_module(module)
+        if not hasattr(module, attr):
+            failed.append((name, f"module loaded but missing attribute '{attr}'"))
+            continue
+        obj = getattr(module, attr)
+        # Sanity: must be a non-None compiled graph (langgraph's compiled agents
+        # have an .invoke method or expose a graph attribute).
+        if obj is None:
+            failed.append((name, "graph attribute is None"))
+            continue
+        print(f"  OK: {name} -> {abs_path.name}:{attr}")
+    except Exception as e:
+        failed.append((name, f"{type(e).__name__}: {e}"))
+
+if failed:
+    print(f"\\n{len(failed)} graph(s) failed to register:")
+    for n, why in failed:
+        print(f"  FAIL: {n}: {why}")
+    sys.exit(1)
+print(f"\\nAll {${JSON.stringify(graphs.length)}} graph(s) registered cleanly.")
+sys.exit(0)
+`;
+      // Provide a dummy GEMINI_API_KEY when probing — both agents construct a
+      // ChatOpenAI client at module import time and openai-python refuses to
+      // initialize without one. The probe is a registration check, not a live
+      // call, so a placeholder is sufficient.
+      const probeEnv = {
+        ...process.env,
+        AGENT_DIR: agentDir,
+        FORCE_COLOR: "1",
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY || "smoke-probe-placeholder",
+      };
+      const res = spawnSync(pythonBin, ["-c", script], {
+        cwd: agentDir,
+        stdio: "inherit",
+        env: probeEnv,
+      });
+      // Exit codes: 0 = all green, 1 = at least one graph failed, anything else
+      // is an env error (python not found, etc.) — surface but don't fail smoke
+      // if the user hasn't run `pnpm install:agent` yet.
+      if (res.status === 0) {
+        return { pass: true, detail: `${graphs.length} graph(s) registered` };
+      }
+      if (res.status === 1) {
+        return { pass: false, detail: "one or more graphs failed to register" };
+      }
+      // Likely env issue (missing venv or python). Don't fail smoke; warn loudly.
+      console.log(
+        `${YELLOW}!${RESET} ${DIM}agent registration probe could not run (exit ${res.status}). Run \`pnpm install:agent\` to bootstrap the venv.${RESET}\n`,
+      );
+      return { pass: true, detail: `skipped (probe exit ${res.status})` };
     },
   },
   {
