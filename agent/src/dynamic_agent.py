@@ -98,6 +98,44 @@ def render_a2ui(
     return "rendered"
 
 
+# Stable surface id for the dynamic tab. Every render targets the SAME surface
+# so follow-up edits update it in place (the canvas dedupes the repeat
+# createSurface) — this is what makes the surface feel iteratively editable
+# instead of a brand-new surface each turn.
+DYNAMIC_SURFACE = "dynamic-surface"
+
+
+def _prior_surface(messages: list) -> tuple[list, dict] | None:
+    """Recover the surface currently on screen from history.
+
+    Scans newest→oldest for the most recent `generate_a2ui` result (a
+    ToolMessage whose content carries `a2ui_operations`) and pulls out its
+    component tree + data model. Returns (components, data) or None. This is
+    what lets a follow-up turn EDIT the live surface instead of regenerating
+    it blind.
+    """
+    for m in reversed(messages):
+        content = getattr(m, "content", None)
+        if not isinstance(content, str) or "a2ui_operations" not in content:
+            continue
+        try:
+            ops = json.loads(content).get("a2ui_operations", [])
+        except (json.JSONDecodeError, TypeError):
+            continue
+        components: list = []
+        data: dict = {}
+        for op in ops:
+            if "updateComponents" in op:
+                components = op["updateComponents"].get("components", []) or []
+            if "updateDataModel" in op:
+                val = op["updateDataModel"].get("value")
+                if isinstance(val, dict):
+                    data = val
+        if components:
+            return components, data
+    return None
+
+
 # Secondary LLM — forced to call render_a2ui so its output is a structured
 # tool_call. Gemini 3.5 Flash via the native Google Gen AI SDK. Forced
 # tool_choice across multi-turn replay is proven viable on this SDK
@@ -171,12 +209,39 @@ def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
         f"{CATALOG_PROMPT}\n"
     )
 
+    # If a surface is already on screen, hand the secondary LLM its current
+    # component tree so a follow-up can EDIT it in place rather than compose
+    # blind. This is the iterative-edit path (closest analog to the old
+    # raw-HTML "edit" mode), constrained to the catalog.
+    prior = _prior_surface(messages)
+    if prior:
+        prior_components, prior_data = prior
+        edit_note = (
+            "\n\n## CURRENT SURFACE (already on screen — edit this)\n"
+            f"surfaceId: {DYNAMIC_SURFACE}\n"
+            f"components_json: {json.dumps(prior_components)}\n"
+            f"data_json: {json.dumps(prior_data) if prior_data else '{}'}\n\n"
+            "If the user's latest message REFINES this surface (e.g. 'sort "
+            "descending', 'make it a bar chart', 'add a column', 'top 5 "
+            "only', 'make it taller', 'add an orbit view too', 'remove the "
+            "table'), then START FROM the tree above and change ONLY what was "
+            "asked — keep every other node, its id, and its props identical. "
+            "If the message is an unrelated NEW request, compose a fresh "
+            "tree. Either way you MUST reuse surfaceId "
+            f"\"{DYNAMIC_SURFACE}\".\n"
+            "Visual styling (colors, fonts, spacing) is owned by the renderer "
+            "and theme — you CANNOT change those here; only structure, "
+            "component choice, ordering, data, and catalog props.\n"
+        )
+    else:
+        edit_note = ""
+
     prompt = (
-        f"{context_text}\n{custom_catalog_note}\n"
-        "Design the surface using ONLY components from the catalog above. "
-        "Inline all data (use plain values, not {{path}} bindings, unless a "
-        "property explicitly accepts a path). The user's request is in the "
-        "most recent messages. Honor the words they used (chart type, "
+        f"{context_text}\n{custom_catalog_note}{edit_note}\n"
+        "Design (or edit) the surface using ONLY components from the catalog "
+        "above. Inline all data (use plain values, not {{path}} bindings, "
+        "unless a property explicitly accepts a path). The user's request is "
+        "in the most recent messages. Honor the words they used (chart type, "
         "comparison, etc.).\n\n"
         "Call render_a2ui exactly once. Pass the COMPLETE component tree as "
         "a JSON array STRING in `components_json` — every node is an object "
@@ -187,7 +252,8 @@ def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
         "chart `data` arrays inline on the chart node. Only use `data_json` "
         "(a JSON object string) if you bind a property via {path}; otherwise "
         "pass \"{}\". Emit STRICT JSON in both string params (double-quoted "
-        "keys, no trailing commas, no comments)."
+        f"keys, no trailing commas, no comments). Set surfaceId to "
+        f"\"{DYNAMIC_SURFACE}\"."
     )
 
     model_with_tool = _render_model().bind_tools(
@@ -201,7 +267,9 @@ def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
         return json.dumps({"error": "secondary LLM did not call render_a2ui"})
 
     args = response.tool_calls[0]["args"]
-    surface_id = args.get("surfaceId", "dynamic-surface")
+    # Force the stable surface id so every render updates the same surface in
+    # place — ignore whatever id the LLM picked.
+    surface_id = DYNAMIC_SURFACE
     catalog_id = args.get("catalogId", CATALOG_ID)
 
     # The component tree + data model ride in as JSON STRING params (scalar
@@ -246,13 +314,26 @@ attach anything.
 
 ## How a turn MUST go (do not deviate)
 
-1. ONE call to `query_asteroids(question=<the user's question on THIS
-   turn>)`. The tool returns JSON with shape_hint, title, summary, data.
-   Read it silently. DO NOT type the JSON anywhere.
-2. ONE call to `generate_a2ui()`. No arguments.
-3. STOP. Do not call any more tools. Do not write any chat content. Your
-   final assistant message MUST be an empty string. The rendered surface
-   IS the user-visible answer.
+A surface is always on screen. Pick the case that fits THIS turn:
+
+CASE A — the user wants NEW data or analysis from the dataset (a new
+question, different asteroids, a metric/breakdown not already shown):
+  1. ONE call to `query_asteroids(question=<the user's question>)`. Read
+     it silently. DO NOT type the JSON anywhere.
+  2. ONE call to `generate_a2ui()`. No arguments.
+
+CASE B — the user is REFINING the surface already on screen and no new
+data is needed (e.g. "sort descending", "make it a bar chart", "show top
+5 only", "add a column", "make it taller", "also add an orbit view",
+"remove the table"):
+  1. ONE call to `generate_a2ui()` directly. SKIP query_asteroids — the
+     tool already receives the current surface and edits it in place.
+
+Then STOP. Do not call any more tools. Do not write any chat content. Your
+final assistant message MUST be an empty string. The rendered surface IS
+the user-visible answer.
+
+When unsure which case, prefer CASE A (it's safe to re-query).
 
 ## Absolute hard rules. Breaking ANY of these causes a crash.
 
@@ -299,7 +380,8 @@ can pair it with a short Text/Callout, but OrbitView is the centerpiece.
 
 ## Restating the loop guard
 
-- Max two tool calls per turn. query_asteroids (once) + generate_a2ui (once).
+- New-data turn (CASE A): query_asteroids (once) + generate_a2ui (once).
+- Refinement turn (CASE B): generate_a2ui (once) only.
 - After generate_a2ui returns, STOP IMMEDIATELY.
 - Never describe the surface in prose. The surface IS the answer.
 

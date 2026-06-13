@@ -79,6 +79,13 @@ function CanvasInner({
 }) {
   const actions = useA2UIActions();
   const [surfaceId, setSurfaceId] = useState<string | null>(null);
+  // Bumped on every applied ops batch. We key <A2UIRenderer> with it so the
+  // surface REMOUNTS on each update. The renderer memoizes component subtrees
+  // by props reference, and updateComponents mutates the surface model in
+  // place (same surfaceId), so without a remount an in-place edit / chip
+  // re-render / added component never repaints. Remounting re-reads the
+  // mutated model and renders the latest tree.
+  const [renderNonce, setRenderNonce] = useState(0);
   const seenRef = useRef(0);
   const createdSurfacesRef = useRef<Set<string>>(new Set());
 
@@ -110,6 +117,8 @@ function CanvasInner({
     );
     try {
       actions.processMessages(out);
+      // Force a remount of the renderer so in-place model mutations repaint.
+      setRenderNonce((n) => n + 1);
     } catch (err) {
       console.warn("[surface-canvas] processMessages threw:", err);
     }
@@ -147,7 +156,7 @@ function CanvasInner({
   return (
     <div className="h-full overflow-y-auto">
       <div className="a2ui-surface p-6 md:p-8">
-        <A2UIRenderer surfaceId={surfaceId} />
+        <A2UIRenderer key={`${surfaceId}:${renderNonce}`} surfaceId={surfaceId} />
       </div>
     </div>
   );
