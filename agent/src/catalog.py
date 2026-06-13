@@ -61,6 +61,8 @@ component must have `id: "root"`.
     Share-of-total breakdown (3-6 slices).
 - **ScatterChart** { data: [{x:number, y:number, label?}], xLabel?: string, yLabel?: string, height?: 160-560 }
     X/Y dots for correlation. Always provide xLabel and yLabel so the user knows what each axis is.
+- **OrbitView** { bodies: [{name, eccentricity, semiMajorAxisAu, inclinationDeg, hazardous?}] | {path}, height?: 240-720 }
+    3D heliocentric Three.js scene: Sun, Earth's 1 AU orbit, and each asteroid's orbit as a Keplerian ellipse. Use ONLY when the user explicitly asks for a 3D / orbital / "in space" visualization. Pass eccentricity, semiMajorAxisAu (AU), inclinationDeg from the dataset. Keep to ~25 bodies.
 - **DataTable** { columns: [{key,label,align?}], rows: [record by column key] }
 
 ### Interactive (use only when the surface needs interactivity)

@@ -226,6 +226,26 @@ export const definitions = {
     }),
   },
 
+  OrbitView: {
+    description:
+      "3D heliocentric orbit view (Three.js). Renders the Sun at the centre, Earth's 1 AU orbit, and each asteroid's orbit as a Keplerian ellipse derived from its orbital elements, with drag-to-rotate + scroll-to-zoom. Use ONLY when the user explicitly asks for a 3D / orbital / 'in space' visualization of asteroids. `bodies` is an array of {name, eccentricity, semiMajorAxisAu, inclinationDeg, hazardous?} (or a {path} binding). Keep it to ~25 bodies for legibility.",
+    props: z.object({
+      bodies: z.union([
+        z.array(
+          z.object({
+            name: z.string(),
+            eccentricity: z.number(),
+            semiMajorAxisAu: z.number(),
+            inclinationDeg: z.number(),
+            hazardous: z.boolean().optional(),
+          }),
+        ),
+        z.object({ path: z.string() }),
+      ]),
+      height: z.number().int().min(240).max(720).optional(),
+    }),
+  },
+
   DataTable: {
     description:
       "Rows × columns table. `columns` is a list of {key, label}; `rows` is a list of records keyed by column key.",

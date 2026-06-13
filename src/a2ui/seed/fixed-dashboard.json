@@ -1,0 +1,410 @@
+[
+  {
+    "version": "v0.9",
+    "createSurface": {
+      "surfaceId": "asteroid-dashboard",
+      "catalogId": "https://cpk-a2ui.local/catalogs/copilotkit/v1"
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateComponents": {
+      "surfaceId": "asteroid-dashboard",
+      "components": [
+        {
+          "id": "root",
+          "component": "Stack",
+          "gap": "lg",
+          "children": [
+            "header-card",
+            "scope-chips",
+            "kpi-grid",
+            "charts-grid",
+            "table-section"
+          ]
+        },
+        {
+          "id": "header-card",
+          "component": "Card",
+          "child": "header-stack"
+        },
+        {
+          "id": "header-stack",
+          "component": "Stack",
+          "gap": "sm",
+          "children": [
+            "header-eyebrow",
+            "header-heading",
+            "header-text"
+          ]
+        },
+        {
+          "id": "header-eyebrow",
+          "component": "Overline",
+          "text": {
+            "path": "/eyebrow"
+          }
+        },
+        {
+          "id": "header-heading",
+          "component": "Heading",
+          "level": "1",
+          "text": {
+            "path": "/title"
+          }
+        },
+        {
+          "id": "header-text",
+          "component": "Text",
+          "tone": "muted",
+          "text": {
+            "path": "/subtitle"
+          }
+        },
+        {
+          "id": "scope-chips",
+          "component": "ChoiceChips",
+          "label": "Scope",
+          "value": {
+            "path": "/scope/selected"
+          },
+          "options": {
+            "path": "/scope/options"
+          }
+        },
+        {
+          "id": "kpi-grid",
+          "component": "Grid",
+          "columns": 4,
+          "gap": "md",
+          "children": [
+            "kpi-1",
+            "kpi-2",
+            "kpi-3",
+            "kpi-4"
+          ]
+        },
+        {
+          "id": "kpi-1",
+          "component": "StatCard",
+          "label": {
+            "path": "/kpis/0/label"
+          },
+          "value": {
+            "path": "/kpis/0/value"
+          },
+          "delta": {
+            "path": "/kpis/0/delta"
+          },
+          "deltaTone": "positive",
+          "caption": {
+            "path": "/kpis/0/caption"
+          }
+        },
+        {
+          "id": "kpi-2",
+          "component": "StatCard",
+          "label": {
+            "path": "/kpis/1/label"
+          },
+          "value": {
+            "path": "/kpis/1/value"
+          },
+          "delta": {
+            "path": "/kpis/1/delta"
+          },
+          "deltaTone": "positive",
+          "caption": {
+            "path": "/kpis/1/caption"
+          }
+        },
+        {
+          "id": "kpi-3",
+          "component": "StatCard",
+          "label": {
+            "path": "/kpis/2/label"
+          },
+          "value": {
+            "path": "/kpis/2/value"
+          },
+          "delta": {
+            "path": "/kpis/2/delta"
+          },
+          "deltaTone": "positive",
+          "caption": {
+            "path": "/kpis/2/caption"
+          }
+        },
+        {
+          "id": "kpi-4",
+          "component": "StatCard",
+          "label": {
+            "path": "/kpis/3/label"
+          },
+          "value": {
+            "path": "/kpis/3/value"
+          },
+          "delta": {
+            "path": "/kpis/3/delta"
+          },
+          "deltaTone": "negative",
+          "caption": {
+            "path": "/kpis/3/caption"
+          }
+        },
+        {
+          "id": "charts-grid",
+          "component": "Grid",
+          "columns": 2,
+          "gap": "md",
+          "children": [
+            "trend-section",
+            "share-section"
+          ]
+        },
+        {
+          "id": "trend-section",
+          "component": "Section",
+          "eyebrow": "APPROACHES / YEAR",
+          "title": "Close approaches by year",
+          "child": "trend-card"
+        },
+        {
+          "id": "trend-card",
+          "component": "Card",
+          "child": "trend-chart"
+        },
+        {
+          "id": "trend-chart",
+          "component": "LineChart",
+          "height": 240,
+          "data": {
+            "path": "/trend"
+          }
+        },
+        {
+          "id": "share-section",
+          "component": "Section",
+          "eyebrow": "POPULATION",
+          "title": "By size class",
+          "child": "share-card"
+        },
+        {
+          "id": "share-card",
+          "component": "Card",
+          "child": "share-chart"
+        },
+        {
+          "id": "share-chart",
+          "component": "DonutChart",
+          "height": 240,
+          "data": {
+            "path": "/share"
+          }
+        },
+        {
+          "id": "table-section",
+          "component": "Section",
+          "eyebrow": "THREAT BOARD",
+          "title": "Closest upcoming approaches",
+          "child": "table-card"
+        },
+        {
+          "id": "table-card",
+          "component": "Card",
+          "child": "table"
+        },
+        {
+          "id": "table",
+          "component": "DataTable",
+          "columns": [
+            {
+              "key": "name",
+              "label": "Asteroid",
+              "align": "left"
+            },
+            {
+              "key": "category",
+              "label": "Class",
+              "align": "left"
+            },
+            {
+              "key": "value",
+              "label": "Miss dist",
+              "align": "right"
+            },
+            {
+              "key": "delta",
+              "label": "Velocity",
+              "align": "right"
+            }
+          ],
+          "rows": {
+            "path": "/rows"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "version": "v0.9",
+    "updateDataModel": {
+      "surfaceId": "asteroid-dashboard",
+      "path": "/",
+      "value": {
+        "eyebrow": "NEAR-EARTH ASTEROIDS \u00b7 CLOSE APPROACHES 2026-2035",
+        "title": "Asteroid Mission Control",
+        "subtitle": "Known near-Earth asteroids, the potentially hazardous subset, and the closest upcoming Earth approaches.",
+        "kpis": [
+          {
+            "label": "Known NEAs",
+            "value": "41,281",
+            "delta": "",
+            "caption": "Total cataloged near-Earth asteroids"
+          },
+          {
+            "label": "Potentially hazardous",
+            "value": "2,539",
+            "delta": "",
+            "caption": "PHAs \u2014 6.2% of known NEAs"
+          },
+          {
+            "label": "Future close approaches",
+            "value": "3,888",
+            "delta": "",
+            "caption": "Upcoming Earth approaches through 2035"
+          },
+          {
+            "label": "Closest upcoming",
+            "value": "0.10 LD",
+            "delta": "",
+            "caption": "Apophis, Apr 2029 \u00b7 1 LD = 384,400 km"
+          }
+        ],
+        "trend": [
+          {
+            "label": "2026",
+            "value": 17.0
+          },
+          {
+            "label": "2027",
+            "value": 18.0
+          },
+          {
+            "label": "2028",
+            "value": 22.0
+          },
+          {
+            "label": "2029",
+            "value": 20.0
+          },
+          {
+            "label": "2030",
+            "value": 11.0
+          },
+          {
+            "label": "2031",
+            "value": 15.0
+          },
+          {
+            "label": "2032",
+            "value": 13.0
+          },
+          {
+            "label": "2033",
+            "value": 12.0
+          },
+          {
+            "label": "2034",
+            "value": 14.0
+          },
+          {
+            "label": "2035",
+            "value": 8.0
+          }
+        ],
+        "share": [
+          {
+            "label": "Small (25-140m)",
+            "value": 19154.0
+          },
+          {
+            "label": "Medium (140m-1km)",
+            "value": 10726.0
+          },
+          {
+            "label": "Tiny (<25m)",
+            "value": 10460.0
+          },
+          {
+            "label": "Large (>1km)",
+            "value": 941.0
+          }
+        ],
+        "rows": [
+          {
+            "name": "99942 Apophis",
+            "category": "Aten",
+            "value": "0.10 LD",
+            "delta": "7.4 km/s"
+          },
+          {
+            "name": "2008 DB",
+            "category": "Apollo",
+            "value": "0.33 LD",
+            "delta": "7.4 km/s"
+          },
+          {
+            "name": "2024 QP2",
+            "category": "Apollo",
+            "value": "0.57 LD",
+            "delta": "9.7 km/s"
+          },
+          {
+            "name": "153814 (2001 WN5)",
+            "category": "Apollo",
+            "value": "0.65 LD",
+            "delta": "10.2 km/s"
+          },
+          {
+            "name": "2013 GM3",
+            "category": "Aten",
+            "value": "0.68 LD",
+            "delta": "7.4 km/s"
+          },
+          {
+            "name": "2024 YR4",
+            "category": "Apollo",
+            "value": "0.72 LD",
+            "delta": "13.3 km/s"
+          }
+        ],
+        "scope": {
+          "options": [
+            {
+              "label": "Closest approaches",
+              "value": "closest"
+            },
+            {
+              "label": "Hazardous only",
+              "value": "hazardous"
+            },
+            {
+              "label": "By size class",
+              "value": "by_size"
+            },
+            {
+              "label": "Fastest",
+              "value": "fastest"
+            },
+            {
+              "label": "Largest",
+              "value": "largest"
+            }
+          ],
+          "selected": "closest"
+        }
+      }
+    }
+  }
+]

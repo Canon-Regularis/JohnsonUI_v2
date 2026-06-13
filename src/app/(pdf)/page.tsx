@@ -6,24 +6,24 @@ export default function Home() {
     <>
       <SiteNav active="home" />
       <PageHeader
-        eyebrow="CopilotKit × A2UI v0.9"
+        eyebrow="Asteroid Mission Control × A2UI v0.9"
         meta={
           <span className="pill">
-            <span className="dot" /> reference build
+            <span className="dot" /> live NEA dataset
           </span>
         }
         title={
           <>
-            Agents that compose UI from your <br className="hidden md:inline" />
+            Agents that compose UI from <br className="hidden md:inline" />
             <span
               className="bg-clip-text text-transparent"
               style={{ backgroundImage: "var(--brand-gradient)" }}
             >
-              own design system.
+              near-Earth-asteroid data.
             </span>
           </>
         }
-        subtitle="Drop a PDF. Watch one agent paint a fixed dashboard from a hand-authored layout, and another agent invent the UI for any follow-up question. Both using the same 21-component catalog."
+        subtitle="A live catalog of 41,281 near-Earth asteroids and their upcoming close approaches. One agent paints a fixed mission-control dashboard from a hand-authored layout; another invents the UI for any follow-up question. Both use the same 21-component catalog."
       />
 
       <main className="flex-1 max-w-[1320px] mx-auto px-6 py-12 w-full">
@@ -31,12 +31,12 @@ export default function Home() {
           <ModeCard
             href="/fixed"
             badge="01 · FIXED SCHEMA"
-            title="Same layout, your data"
-            blurb="You author the dashboard once. The agent only fills in the numbers. Fast, predictable, brand-locked."
+            title="Same layout, live data"
+            blurb="You author the mission-control dashboard once. The agent only fills in the numbers from the asteroid dataset. Fast, predictable, brand-locked."
             bullets={[
               "One JSON file is the dashboard layout",
-              "Agent extracts KPIs, trend, share, table rows from the PDF",
-              "Surface streams in instantly. No second LLM call to render",
+              "Agent derives KPIs, approaches/year, size classes, threat board",
+              "Tap a scope chip (Hazardous, Fastest, Largest) to re-focus",
             ]}
             cta="Open the fixed demo"
           />
@@ -44,10 +44,10 @@ export default function Home() {
             href="/dynamic"
             badge="02 · DYNAMIC SCHEMA"
             title="Agent picks the shape"
-            blurb="No pre-written layout. The agent answers your question, then a second LLM pass invents the UI from the catalog."
+            blurb="No pre-written layout. The agent answers your question about the asteroids, then a second LLM pass invents the UI from the catalog."
             bullets={[
               "Pick any of the 21 catalog components, in any combination",
-              "Stat for single numbers · LineChart for trends · DataTable for lists",
+              "ScatterChart for velocity vs distance · DataTable for rankings",
               "Same brand tokens. The agent never sees CSS",
             ]}
             cta="Open the dynamic demo"

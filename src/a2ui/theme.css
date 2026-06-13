@@ -9,17 +9,19 @@
    src/app/(pdf)/pdf-analyst.css. `pnpm theme:reset` reverts both.
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .a2ui-surface {
-  --background: #fafafc;
-  --foreground: #010507;
-  --card: #ffffff;
-  --primary: #010507;
-  --primary-foreground: #ffffff;
-  --border: #dbdbe5;
-  --input: #dbdbe5;
-  --muted: #f0f0f4;
-  --muted-foreground: #57575b;
-  --accent: #bec2ff;
-  --accent-foreground: #010507;
+  /* Dark NASA/JPL mission-control surface — matches the shell tokens in
+     src/app/(pdf)/pdf-analyst.css. */
+  --background: #05070b;
+  --foreground: #e9eef5;
+  --card: #0c1119;
+  --primary: #4fd2ff;
+  --primary-foreground: #05070b;
+  --border: #1b2530;
+  --input: #1b2530;
+  --muted: #11171f;
+  --muted-foreground: #8a96a4;
+  --accent: #4fd2ff;
+  --accent-foreground: #05070b;
   --radius: 14px;
 
   font-family:

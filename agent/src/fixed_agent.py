@@ -1,4 +1,4 @@
-"""Fixed-schema dashboard agent.
+"""Fixed-schema dashboard agent — Asteroid Mission Control.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 CUSTOMIZATION SEAM #5 — Swap the agent flow (fixed-schema dashboard)
@@ -8,12 +8,13 @@ rewrite the layout JSON at agent/src/a2ui/schemas/dashboard.json and the
 domain. The dynamic Q&A flow lives in dynamic_agent.py.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The user attaches a PDF in the chat. The deep agent reads the PDF text
-(inlined into the user message by InlineDocumentsMiddleware) and calls
-`render_dashboard` with the structured data extracted in the same model
-pass. The dashboard surface includes an interactive scope-chips strip
-that the agent populates from the document. Clicking a chip fires a
-user action back to the agent, which re-renders with the new scope.
+The demo data is a static NASA near-Earth-asteroid snapshot (see
+asteroid_data.py). The agent calls `load_asteroids` to pull the dataset,
+then calls `render_dashboard` with the structured data derived in the same
+model pass. The dashboard surface includes an interactive scope-chips strip
+the agent populates (closest approaches, hazardous only, by size class, …).
+Clicking a chip fires a user action back to the agent, which re-renders the
+dashboard focused on the new scope.
 """
 from __future__ import annotations
 
@@ -27,11 +28,14 @@ from langchain.tools import tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
 
+from src.asteroid_data import get_data_dictionary
+from src.asteroid_tools import load_asteroids
 from src.catalog import CATALOG_ID, CATALOG_PROMPT
+from src.llm import build_chat_model
 
 SCHEMA_DIR = Path(__file__).parent / "a2ui" / "schemas"
 DASHBOARD_SCHEMA = a2ui.load_schema(SCHEMA_DIR / "dashboard.json")
-SURFACE = "pdf-dashboard"
+SURFACE = "asteroid-dashboard"
 
 
 # NOTE (Gemini typed-array fix): every list parameter on render_dashboard
@@ -76,7 +80,7 @@ def render_dashboard(
     scope_options: list[ScopeOption],
     scope_selected: str,
 ) -> str:
-    """Render the interactive dashboard for the loaded PDF.
+    """Render the interactive Asteroid Mission Control dashboard.
 
     Pass data INLINE. Call ONCE per turn.
 
@@ -84,33 +88,34 @@ def render_dashboard(
       - kpis: EXACTLY 4 cards. Each {label, value, delta, caption}.
 
         STRICT FIELD RULES (very important; the badge breaks if you ignore):
-          * `value`   = the headline number, formatted ("$94,930M", "23.4%",
-                        "1.2M units"). 1–8 chars typically.
-          * `delta`   = JUST the magnitude of change. Format: "+X%", "-X%",
-                        or "" (empty string when there's no comparison).
-                        MAX 8 chars. NEVER prose. NEVER "vs. last quarter"
-                        or "vs. $89,498M". The arrow and color come from
-                        the renderer.
-                        Examples: "+6.1%", "-3%", "+12%", "+$2.4B", ""
-                        Bad:      "↑ vs. $89,498M in Q4 FY23"
-                                  "up 6% YoY"
-                                  "increased from $89,498M"
-          * `caption` = the comparison/context sentence ("vs. $89,498M in
-                        Q4 FY23", "Products $69,958M; Services $24,972M",
-                        "All-time high"). Up to ~80 chars. This is where
-                        the prose goes.
+          * `value`   = the headline number, formatted ("41,281", "2,539",
+                        "0.1 LD", "7.42 km/s"). 1–8 chars typically.
+          * `delta`   = JUST a short magnitude tag, or "" (empty) when there
+                        is no comparison — which is the COMMON case for this
+                        dataset. MAX 8 chars. NEVER prose. The arrow/color
+                        come from the renderer.
+                        Examples: "", "+12%", "-3%", "6.1%"
+                        Bad:      "↑ vs. last year", "closest on record"
+          * `caption` = the context sentence ("of 41,281 known NEAs",
+                        "closest: Apophis, Apr 2029", "1 LD = 384,400 km").
+                        Up to ~80 chars. This is where the prose goes.
 
-      - trend: 6–12 points. {label, value:number}.
-      - share: 3–5 slices. {label, value:number}.
-      - rows: 5–8 table rows. Same delta rule applies: row.delta is
-        SHORT ("+6%", "-3%", ""). Verbose comparisons belong elsewhere.
+      - trend: 6–12 points. {label, value:number}. Good choice for asteroids:
+        close approaches per year (label = year, value = count).
+      - share: 3–5 slices. {label, value:number}. Good choice: count by size
+        class, or by orbit class.
+      - rows: 5–8 table rows {name, category, value, delta}. Good choice:
+        the closest upcoming approaches (name = asteroid, category = orbit or
+        size class, value = miss distance like "0.10 LD"). Keep row.delta
+        SHORT or "" (e.g. the velocity "7.4 km/s" or "").
       - scope_options: 3–6 chips the user can click to re-scope. Each
-        {label, value}. Example for an Apple earnings PDF:
-          [{label:"Q4 FY24", value:"q4_fy24"},
-           {label:"FY24",    value:"fy24"},
-           {label:"By segment", value:"by_segment"},
-           {label:"By region",  value:"by_region"}]
-        Tailor the options to what THIS document actually supports.
+        {label, value}. Example chip set for the asteroid dataset:
+          [{label:"Closest approaches", value:"closest"},
+           {label:"Hazardous only",     value:"hazardous"},
+           {label:"By size class",      value:"by_size"},
+           {label:"Fastest",            value:"fastest"},
+           {label:"Largest",            value:"largest"}]
+        Tailor the options to what the data actually supports.
       - scope_selected: the `value` of the currently active option.
     """
     payload = {
@@ -133,66 +138,78 @@ def render_dashboard(
 
 
 SYSTEM_PROMPT = f"""\
-You build and maintain a live dashboard from the user's PDF.
+You are the Asteroid Mission Control engine. You build and maintain a live
+dashboard from a near-Earth-asteroid (NEA) dataset.
+
+## The dataset
+
+{get_data_dictionary()}
+
+Call `load_asteroids()` (no arguments) to pull the full payload whenever you
+need the per-asteroid records (for the trend, share, and table). It returns
+`summary` + `close_approaches`. Use ONLY numbers that appear in that payload.
 
 ## How a turn works
 
 The user may do three things on any turn:
-  A) Attach a new PDF + chat (initial render).
-  B) Send a chat message ("re-render focused on energy storage",
-     "what was operating margin?", "compare last quarter").
+  A) Open the demo / ask to build the dashboard (initial render).
+  B) Send a chat message ("how fast is Apophis?", "re-render focused on
+     hazardous asteroids", "which is the largest?").
   C) Click a scope chip on the dashboard. The runtime delivers this as a
      tool result `log_a2ui_event` with content like:
-        User performed action "select_chip" on surface "pdf-dashboard".
-        Context: {{"value": "fy24", "label": "Scope"}}
+        User performed action "select_chip" on surface "asteroid-dashboard".
+        Context: {{"value": "hazardous", "label": "Scope"}}
 
 In every case, decide whether to re-render the dashboard, answer in chat,
 or both.
 
 ## The render contract
 
-When you render, call `render_dashboard(...)` ONCE with structured data:
-  - 4 KPIs, 6–12 trend points, 3–5 share slices, 5–8 rows.
-  - `scope_options`: 3–6 chips tailored to THIS PDF. Examples of good
-    chip sets:
-      - Apple Q4 PDF → [Q4 FY24, FY24, By segment, By region, By category]
-      - Tesla Q3 PDF → [Q3 '24, By model, By region, Automotive vs Energy,
-                       Trailing 4 quarters]
-  - `scope_selected`: which chip is active. Default to the most natural
-    starting scope for the document. After a chip click, set this to the
-    clicked value.
+To render: call `load_asteroids()` once, read the data, then call
+`render_dashboard(...)` ONCE with structured data:
+  - 4 KPIs (e.g. known NEAs, potentially hazardous, future close approaches,
+    closest upcoming miss distance).
+  - 6–12 trend points (e.g. close approaches per year).
+  - 3–5 share slices (e.g. count by size class, or by orbit class).
+  - 5–8 rows (e.g. the closest upcoming approaches).
+  - `scope_options`: 3–6 chips, e.g. [Closest approaches, Hazardous only,
+    By size class, Fastest, Largest].
+  - `scope_selected`: which chip is active. Default to "closest" on the
+    first render. After a chip click, set this to the clicked value.
 
-When the user (or a chip click) asks to change scope:
-  - Re-extract the data for the new scope from the PDF text.
-  - Re-call render_dashboard with the SAME surfaceId so the canvas
-    updates in place. The scope_selected reflects the new active chip.
+When the user (or a chip click) changes scope:
+  - Re-derive the trend / share / rows for the new scope from the payload
+    (e.g. for "hazardous" filter close_approaches to hazardous==true; for
+    "fastest" sort by velocity_km_s; for "largest" sort by diameter_m).
+  - Re-call render_dashboard with the SAME surfaceId so the canvas updates
+    in place. scope_selected reflects the new active chip.
 
 ## Hard rules
 
-- Render the dashboard whenever the user attaches a PDF (initial), asks
-  to re-render in any way, or clicks a chip.
+- Render the dashboard on the first turn, whenever the user asks to
+  re-render in any way, or when they click a chip.
 - Call `render_dashboard` AT MOST ONCE per turn. Never twice.
-- Use ONLY numbers that actually appear in the document.
+- Use ONLY numbers that actually appear in the dataset payload.
 - If the user asks an analytical question that does NOT require a layout
-  change (e.g. "what was operating margin?"), answer in chat without
+  change (e.g. "how fast is Apophis going?"), answer in chat without
   re-rendering. 1–3 sentences max. Cite the number.
-- If the user wants to invent a brand-new visualization not covered by
-  the fixed schema (e.g. "show a sankey diagram"), tell them to use the
+- If the user wants a brand-new visualization not covered by the fixed
+  schema (e.g. "plot velocity vs miss distance"), tell them to use the
   Dynamic tab.
 
 ## Chat tone
 
-Be helpful, brief, conversational. After the first render, you can
-suggest one or two follow-ups the user might click ("Tap *FY24* for the
-full-year view" or "Want me to break it down by segment?"). Don't list
-more than two suggestions.
+Be helpful, brief, conversational. After the first render, you can suggest
+one or two follow-ups the user might click ("Tap *Hazardous only* to focus
+the threat board" or "Want the fastest approachers?"). Don't list more than
+two suggestions.
 
 {CATALOG_PROMPT}
 """
 
 
 # Gemini 3.5 Flash via the native Google Gen AI SDK — same provider as the
-# dynamic agent and the PDF extractor (see FROZEN.md "LLM provider"). The
+# dynamic agent and the asteroid extractor (see FROZEN.md "LLM provider"). The
 # native SDK replays Gemini's thought_signature across tool turns, which the
 # OpenAI-compat path does not.
 #
@@ -202,10 +219,8 @@ more than two suggestions.
 # build_fixed_agent never touches the live model). Online behavior is
 # unchanged — the client is built on the first build_fixed_agent() call.
 def _build_model() -> ChatGoogleGenerativeAI:
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("MODEL", "gemini-3.5-flash"),
-        google_api_key=os.getenv("GEMINI_API_KEY"),
-    )
+    # Backend (AI Studio vs Vertex AI) is chosen by env in src/llm.py.
+    return build_chat_model()
 
 
 def build_fixed_agent():
@@ -221,7 +236,7 @@ def build_fixed_agent():
 
     return create_agent(
         model=_build_model(),
-        tools=[render_dashboard],
+        tools=[load_asteroids, render_dashboard],
         # CopilotKitMiddleware forwards frontend tools + agent context (e.g.
         # useAgentContext payloads) to the LLM.
         middleware=[CopilotKitMiddleware()],

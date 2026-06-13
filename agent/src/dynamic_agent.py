@@ -7,7 +7,7 @@ how the secondary LLM composes answer UI from the catalog. The fixed
 dashboard flow lives in fixed_agent.py.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The agent answers any question about the most-recently-uploaded PDF by
+The agent answers any question about the near-Earth-asteroid dataset by
 inventing the UI for the answer using our custom catalog.
 
 ## Why this looks the way it does
@@ -42,7 +42,6 @@ match.
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from copilotkit import CopilotKitMiddleware, a2ui
@@ -53,8 +52,9 @@ from langchain_core.tools import tool as lc_tool
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import MemorySaver
 
+from src.asteroid_tools import query_asteroids
 from src.catalog import CATALOG_ID, CATALOG_PROMPT
-from src.pdf_tools import query_pdf
+from src.llm import build_chat_model
 
 
 # ── Gemini prop-stripping fix ─────────────────────────────────────────────
@@ -115,11 +115,8 @@ _RENDER_MODEL: ChatGoogleGenerativeAI | None = None
 def _render_model() -> ChatGoogleGenerativeAI:
     global _RENDER_MODEL
     if _RENDER_MODEL is None:
-        _RENDER_MODEL = ChatGoogleGenerativeAI(
-            model=os.getenv("MODEL", "gemini-3.5-flash"),
-            google_api_key=os.getenv("GEMINI_API_KEY"),
-            temperature=0,
-        )
+        # Backend (AI Studio vs Vertex AI) is chosen by env in src/llm.py.
+        _RENDER_MODEL = build_chat_model(temperature=0)
     return _RENDER_MODEL
 
 
@@ -151,8 +148,8 @@ class _LazyRenderModel:
 def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
     """Render the answer to the user's question as an A2UI surface.
 
-    Call this AFTER `query_pdf`. It reads the conversation (including the
-    query_pdf result) and the available A2UI catalog from context, then
+    Call this AFTER `query_asteroids`. It reads the conversation (including
+    the query_asteroids result) and the available A2UI catalog from context, then
     designs the surface and returns the operations for the client to
     render. You do NOT pass any arguments. It picks up everything from
     state.
@@ -236,52 +233,34 @@ def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
 
 
 SYSTEM_PROMPT = f"""\
-You answer questions about a user's attached PDF and render the answer
-as an A2UI surface using our custom catalog.
+You answer questions about a near-Earth-asteroid (NEA) dataset and render
+the answer as an A2UI surface using our custom catalog.
 
-## Where the PDF lives
+## The data
 
-The frontend extracts the PDF text and inlines it into the user's
-message under a `[Document: <filename>]` header. The PDF may have been
-attached on the CURRENT turn or on ANY EARLIER turn in this conversation.
-A user typically attaches a PDF once and then asks several follow-up
-questions about it without re-attaching.
-
-## How to find the PDF text
-
-Scan the entire conversation history (every user message, oldest to
-newest). Find the MOST RECENT user message that contains a
-`[Document: <filename>]` header. That message's body is the active PDF
-text and applies to every subsequent follow-up question UNTIL the user
-attaches a different PDF.
-
-Only if NO message in the history has ever contained a
-`[Document: ...]` header should you ask the user to attach a PDF.
+The mission dataset is always loaded — the `query_asteroids` tool reads it
+for you. It covers known NEAs, potentially hazardous asteroids, upcoming
+Earth close approaches (miss distance, velocity, size, orbit class), and
+each asteroid's heliocentric orbital elements. You never need the user to
+attach anything.
 
 ## How a turn MUST go (do not deviate)
 
-1. If NO message in the conversation history has a `[Document: ...]`
-   header, reply with a single sentence: "Attach a PDF and I'll render
-   the answer." STOP. Do not call any tool.
-2. Otherwise (a PDF is available from this turn or a previous one):
-   a. ONE call to `query_pdf(pdf_text=<the document text from the most
-      recent [Document: ...] message>, question=<the user's question on
-      THIS turn>)`. The tool returns JSON with shape_hint, title,
-      summary, data. Read it silently. DO NOT type the JSON anywhere.
-   b. ONE call to `generate_a2ui()`. No arguments.
-   c. STOP. Do not call any more tools. Do not write any chat content.
-      Your final assistant message MUST be an empty string. The rendered
-      surface IS the user-visible answer.
+1. ONE call to `query_asteroids(question=<the user's question on THIS
+   turn>)`. The tool returns JSON with shape_hint, title, summary, data.
+   Read it silently. DO NOT type the JSON anywhere.
+2. ONE call to `generate_a2ui()`. No arguments.
+3. STOP. Do not call any more tools. Do not write any chat content. Your
+   final assistant message MUST be an empty string. The rendered surface
+   IS the user-visible answer.
 
 ## Absolute hard rules. Breaking ANY of these causes a crash.
 
 - After `generate_a2ui` returns, you are DONE for this turn. Do not call
-  `query_pdf` again. Do not call `generate_a2ui` again. Do not write
+  `query_asteroids` again. Do not call `generate_a2ui` again. Do not write
   anything except an empty string.
-- NEVER include the query_pdf JSON in your reply.
+- NEVER include the query_asteroids JSON in your reply.
 - NEVER include any tool's return value in your reply.
-- NEVER quote the PDF text, summarize the document, or echo any part of
-  `pdf_text` back into the chat.
 - The chat reply MUST be either empty ("") or a single very short
   sentence (under 10 words). Empty is preferred.
 
@@ -308,12 +287,19 @@ secondary LLM will honor it. Defaults per shape_hint:
               enumerations, and Text for paragraphs. Mix with one chart
               ONLY if the question genuinely benefits from data viz.
 
-Heuristic for research-paper questions: prefer the rich `text` layout
-above. Skip charts unless the user explicitly asked for data viz.
+A ScatterChart is ideal when the user asks to relate two numeric fields
+(e.g. velocity vs miss distance, diameter vs miss distance) — always set
+xLabel and yLabel.
+
+When the user explicitly asks for a 3D / orbital / "in space" view (shape_hint
+`orbit`), use the **OrbitView** component. Pass `bodies` as
+[{{name, eccentricity, semiMajorAxisAu, inclinationDeg, hazardous}}] populated
+from the dataset's orbital elements (ecc, a_au, incl_deg), ~25 bodies max. You
+can pair it with a short Text/Callout, but OrbitView is the centerpiece.
 
 ## Restating the loop guard
 
-- Max two tool calls per turn. query_pdf (once) + generate_a2ui (once).
+- Max two tool calls per turn. query_asteroids (once) + generate_a2ui (once).
 - After generate_a2ui returns, STOP IMMEDIATELY.
 - Never describe the surface in prose. The surface IS the answer.
 
@@ -328,7 +314,7 @@ def build_dynamic_agent():
     # then). Online behavior is unchanged.
     return create_agent(
         model=_LazyRenderModel(),
-        tools=[query_pdf, generate_a2ui],
+        tools=[query_asteroids, generate_a2ui],
         middleware=[CopilotKitMiddleware()],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=MemorySaver(),

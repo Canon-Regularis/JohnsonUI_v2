@@ -1,23 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { CopilotChat, useAgent } from "@copilotkit/react-core/v2";
 import { SiteNav } from "@/components/pdf-analyst/Brand";
 import { SurfaceCanvas, CanvasEmptyState } from "@/components/pdf-analyst/SurfaceCanvas";
 import { FilteredUserMessage } from "@/components/pdf-analyst/FilteredUserMessage";
 import { FilteredAssistantMessage } from "@/components/pdf-analyst/FilteredAssistantMessage";
 import { Split } from "@/components/pdf-analyst/Split";
-import { extractPdfText } from "@/lib/pdf";
+import { seedSurface } from "@/a2ui/seed";
 
 const AGENT_ID = "fixed_agent";
 
 export default function FixedPage() {
   const { agent: _agent } = useAgent({ agentId: AGENT_ID });
-  const [loaded, setLoaded] = useState<{
-    filename: string;
-    pages: number;
-    chars: number;
-  } | null>(null);
+
+  // Open with a pre-rendered dashboard so the canvas isn't blank — the user
+  // reworks it via chat / scope chips. No LLM call; the live agent takes over
+  // on the first interaction and re-renders the same surface in place.
+  useEffect(() => {
+    seedSurface(AGENT_ID);
+  }, []);
 
   return (
     <div className="h-screen flex flex-col bg-[var(--bg)]">
@@ -29,20 +31,6 @@ export default function FixedPage() {
         initialLeftFraction={0.32}
         left={
           <div className="h-full flex flex-col copilot-chat-wrapper">
-            {loaded && (
-              <div className="shrink-0 px-4 py-2 border-b border-[var(--line)] flex items-center gap-2 bg-[color-mix(in_oklab,var(--mint)_8%,var(--surface))]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#0d6b4f]" />
-                <span className="mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink)]">
-                  loaded
-                </span>
-                <span className="text-[12.5px] font-medium text-[var(--ink)] truncate">
-                  {loaded.filename}
-                </span>
-                <span className="text-[11px] text-[var(--ink)] ml-auto">
-                  {loaded.pages} pg · {Math.round(loaded.chars / 1000)}k chars
-                </span>
-              </div>
-            )}
             <div className="flex-1 min-h-0">
               <CopilotChat
                 agentId={AGENT_ID}
@@ -52,36 +40,11 @@ export default function FixedPage() {
                     assistantMessage: FilteredAssistantMessage,
                   },
                 }}
-                attachments={{
-                  enabled: true,
-                  accept: "application/pdf",
-                  maxSize: 20 * 1024 * 1024,
-                  onUpload: async (file) => {
-                    const { text, pages } = await extractPdfText(file);
-                    setLoaded({
-                      filename: file.name,
-                      pages,
-                      chars: text.length,
-                    });
-                    return {
-                      type: "data",
-                      value: text.slice(0, 60_000),
-                      mimeType: "text/plain",
-                      metadata: {
-                        filename: file.name,
-                        pages,
-                        originalMime: "application/pdf",
-                      },
-                    };
-                  },
-                  onUploadFailed: (err) =>
-                    console.warn("[pdf upload failed]", err),
-                }}
                 labels={{
                   chatInputPlaceholder:
-                    "Attach a PDF (📎), then ask to render the dashboard…",
+                    "Ask mission control… e.g. “Build the dashboard.”",
                   welcomeMessageText:
-                    "Attach a PDF using the 📎 button, then ask: “Render the dashboard.”",
+                    "Ask me to “Build the mission control dashboard,” then tap a scope chip (Hazardous only, Fastest, Largest) to re-focus it.",
                 }}
               />
             </div>
@@ -93,10 +56,10 @@ export default function FixedPage() {
             emptyState={
               <CanvasEmptyState
                 title="Canvas is empty"
-                subtitle="Attach a PDF in the chat (📎 in the input toolbar) and ask the agent to render the dashboard. The rendered A2UI surface will fill this canvas."
+                subtitle="Ask the agent to build the asteroid mission-control dashboard. It loads the near-Earth-asteroid dataset and paints the fixed A2UI surface here."
                 hint={
                   <span className="mono text-[11px] uppercase tracking-[0.14em] text-[var(--ink)]">
-                    try: “Render the dashboard.”
+                    try: “Build the dashboard.”
                   </span>
                 }
               />

@@ -13,12 +13,12 @@ so they MUST satisfy that tool's typed inputs:
   - scope_options: 3-6 × {label, value}                  (ScopeOption)
   - scope_selected: str (one of scope_options' values)
 
-Dataset: a realistic Tesla Q3 FY24 earnings snapshot. The numbers are
-illustrative-but-plausible (revenue / deliveries / margin / EPS, a
-trailing revenue trend, an automotive-vs-energy share, and a regional /
-segment row table). The system prompt in fixed_agent.py already cites
-"Tesla Q3 '24" as a canonical scope-chip example, so this fixture mirrors
-that shape.
+Dataset: the bundled NASA near-Earth-asteroid snapshot (see
+asteroid_data.py). These numbers are taken verbatim from
+asteroid_snapshot.json — dataset-wide summary stats for the KPIs, close
+approaches per year for the trend, size-class counts for the share donut,
+and the closest upcoming approaches for the table. The scope chips mirror
+the canonical set in fixed_agent.py's system prompt.
 """
 from __future__ import annotations
 
@@ -28,99 +28,101 @@ from typing import Any
 # tool-call args and through a2ui.render(...). Field names match the
 # TypedDicts in fixed_agent.py (Kpi / Point / Row / ScopeOption) exactly.
 OFFLINE_DASHBOARD_ARGS: dict[str, Any] = {
-    "eyebrow": "Q3 FY24 · EARNINGS SNAPSHOT",
-    "title": "Tesla Q3 FY24 Performance",
-    "subtitle": "Revenue, deliveries, and margin for the quarter ended Sep 30, 2024.",
+    "eyebrow": "NEAR-EARTH ASTEROIDS · CLOSE APPROACHES 2026-2035",
+    "title": "Asteroid Mission Control",
+    "subtitle": "Known near-Earth asteroids, the potentially hazardous subset, and the closest upcoming Earth approaches.",
     "kpis": [
         {
-            "label": "Total revenue",
-            "value": "$25.18B",
-            "delta": "+8%",
-            "caption": "vs. $23.35B in Q3 FY23",
+            "label": "Known NEAs",
+            "value": "41,281",
+            "delta": "",
+            "caption": "Total cataloged near-Earth asteroids",
         },
         {
-            "label": "Vehicle deliveries",
-            "value": "462,890",
-            "delta": "+6%",
-            "caption": "vs. 435,059 in Q3 FY23",
+            "label": "Potentially hazardous",
+            "value": "2,539",
+            "delta": "",
+            "caption": "PHAs — 6.2% of known NEAs",
         },
         {
-            "label": "Operating margin",
-            "value": "10.8%",
-            "delta": "+3.0pp",
-            "caption": "vs. 7.6% in Q3 FY23",
+            "label": "Future close approaches",
+            "value": "3,888",
+            "delta": "",
+            "caption": "Upcoming Earth approaches through 2035",
         },
         {
-            "label": "Diluted EPS (GAAP)",
-            "value": "$0.62",
-            "delta": "+17%",
-            "caption": "vs. $0.53 in Q3 FY23",
+            "label": "Closest upcoming",
+            "value": "0.10 LD",
+            "delta": "",
+            "caption": "Apophis, Apr 2029 · 1 LD = 384,400 km",
         },
     ],
-    # Trailing-quarter total revenue ($B). 8 points (within the 6-12 range).
+    # Close approaches per year (count). 10 points (within the 6-12 range).
     "trend": [
-        {"label": "Q4 '22", "value": 24.32},
-        {"label": "Q1 '23", "value": 23.33},
-        {"label": "Q2 '23", "value": 24.93},
-        {"label": "Q3 '23", "value": 23.35},
-        {"label": "Q4 '23", "value": 25.17},
-        {"label": "Q1 '24", "value": 21.30},
-        {"label": "Q2 '24", "value": 25.50},
-        {"label": "Q3 '24", "value": 25.18},
+        {"label": "2026", "value": 17},
+        {"label": "2027", "value": 18},
+        {"label": "2028", "value": 22},
+        {"label": "2029", "value": 20},
+        {"label": "2030", "value": 11},
+        {"label": "2031", "value": 15},
+        {"label": "2032", "value": 13},
+        {"label": "2033", "value": 12},
+        {"label": "2034", "value": 14},
+        {"label": "2035", "value": 8},
     ],
-    # Revenue share by business line ($B). 4 slices (within the 3-5 range).
+    # Known NEAs by size class (count). 4 slices (within the 3-5 range).
     "share": [
-        {"label": "Automotive", "value": 20.02},
-        {"label": "Energy gen. & storage", "value": 2.38},
-        {"label": "Services & other", "value": 2.79},
-        {"label": "Regulatory credits", "value": 0.74},
+        {"label": "Small (25-140m)", "value": 19154},
+        {"label": "Medium (140m-1km)", "value": 10726},
+        {"label": "Tiny (<25m)", "value": 10460},
+        {"label": "Large (>1km)", "value": 941},
     ],
-    # Segment / regional breakdown. 6 rows (within the 5-8 range).
+    # Closest upcoming approaches. 6 rows (within the 5-8 range).
     "rows": [
         {
-            "name": "Automotive",
-            "category": "Segment",
-            "value": "$20.02B",
-            "delta": "+2%",
+            "name": "99942 Apophis",
+            "category": "Aten",
+            "value": "0.10 LD",
+            "delta": "7.4 km/s",
         },
         {
-            "name": "Energy generation & storage",
-            "category": "Segment",
-            "value": "$2.38B",
-            "delta": "+52%",
+            "name": "2008 DB",
+            "category": "Apollo",
+            "value": "0.33 LD",
+            "delta": "7.4 km/s",
         },
         {
-            "name": "Services & other",
-            "category": "Segment",
-            "value": "$2.79B",
-            "delta": "+29%",
+            "name": "2024 QP2",
+            "category": "Apollo",
+            "value": "0.57 LD",
+            "delta": "9.7 km/s",
         },
         {
-            "name": "United States",
-            "category": "Region",
-            "value": "$12.10B",
-            "delta": "+11%",
+            "name": "153814 (2001 WN5)",
+            "category": "Apollo",
+            "value": "0.65 LD",
+            "delta": "10.2 km/s",
         },
         {
-            "name": "China",
-            "category": "Region",
-            "value": "$4.67B",
-            "delta": "-4%",
+            "name": "2013 GM3",
+            "category": "Aten",
+            "value": "0.68 LD",
+            "delta": "7.4 km/s",
         },
         {
-            "name": "Other international",
-            "category": "Region",
-            "value": "$8.41B",
-            "delta": "+9%",
+            "name": "2024 YR4",
+            "category": "Apollo",
+            "value": "0.72 LD",
+            "delta": "13.3 km/s",
         },
     ],
-    # Scope chips tailored to a Tesla quarterly PDF (3-6 chips).
+    # Scope chips matching fixed_agent.py's canonical set (3-6 chips).
     "scope_options": [
-        {"label": "Q3 '24", "value": "q3_fy24"},
-        {"label": "By segment", "value": "by_segment"},
-        {"label": "By region", "value": "by_region"},
-        {"label": "Automotive vs Energy", "value": "auto_vs_energy"},
-        {"label": "Trailing 4 quarters", "value": "trailing_4q"},
+        {"label": "Closest approaches", "value": "closest"},
+        {"label": "Hazardous only", "value": "hazardous"},
+        {"label": "By size class", "value": "by_size"},
+        {"label": "Fastest", "value": "fastest"},
+        {"label": "Largest", "value": "largest"},
     ],
-    "scope_selected": "q3_fy24",
+    "scope_selected": "closest",
 }

@@ -1,7 +1,9 @@
 "use client";
 
 import { clsx } from "clsx";
+import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
+import * as THREE from "three";
 import {
   Bar,
   BarChart as RBarChart,
@@ -224,10 +226,10 @@ const Card = ({
   const tones: Record<string, string> = {
     default: "bg-[var(--surface)] border-[var(--line)]",
     lilac:
-      "bg-[color-mix(in_oklab,var(--lilac)_8%,white)] border-[var(--lilac)]",
-    mint: "bg-[color-mix(in_oklab,var(--mint)_10%,white)] border-[color-mix(in_oklab,var(--mint)_60%,white)]",
+      "bg-[color-mix(in_oklab,var(--lilac)_12%,var(--surface))] border-[color-mix(in_oklab,var(--lilac)_45%,var(--line))]",
+    mint: "bg-[color-mix(in_oklab,var(--mint)_12%,var(--surface))] border-[color-mix(in_oklab,var(--mint)_45%,var(--line))]",
     warning:
-      "bg-[color-mix(in_oklab,var(--orange)_8%,white)] border-[color-mix(in_oklab,var(--orange)_50%,white)]",
+      "bg-[color-mix(in_oklab,var(--orange)_12%,var(--surface))] border-[color-mix(in_oklab,var(--orange)_45%,var(--line))]",
   };
   return (
     <div
@@ -1045,6 +1047,274 @@ const ChoiceChips = ({
   );
 };
 
+/* ── OrbitView (3D, Three.js) ─────────────────────────────────────────────
+ * Heliocentric scene: Sun at the origin, Earth's 1 AU orbit, and each
+ * asteroid's orbit as a Keplerian ellipse (r = a(1−e²)/(1+e·cosθ), Sun at one
+ * focus) inclined about the x-axis. Vanilla three (no react-three-fiber) so
+ * there's no React-version peer coupling. The whole scene build is wrapped in
+ * try/catch and torn down on unmount. Revives the asteroid prototype's
+ * signature 3D view inside the A2UI catalog. */
+type OrbitBody = {
+  name: string;
+  eccentricity: number;
+  semiMajorAxisAu: number;
+  inclinationDeg: number;
+  hazardous?: boolean;
+};
+
+const AU = 100; // world units per astronomical unit
+const HAZARD_COLOR = 0xff5d5d;
+const SAFE_COLOR = 0x4ade80;
+const EARTH_COLOR = 0x6ea8ff;
+const MAX_BODIES = 60; // cap for legibility + perf
+
+function keplerEllipsePoints(
+  semiMajorAxisAu: number,
+  eccentricity: number,
+  inclinationDeg: number,
+): THREE.Vector3[] {
+  const a = (semiMajorAxisAu > 0 ? semiMajorAxisAu : 1) * AU;
+  const e = Math.min(Math.max(eccentricity || 0, 0), 0.95);
+  const incl = ((inclinationDeg || 0) * Math.PI) / 180;
+  const pts: THREE.Vector3[] = [];
+  for (let i = 0; i <= 160; i++) {
+    const th = (i / 160) * Math.PI * 2;
+    const r = (a * (1 - e * e)) / (1 + e * Math.cos(th));
+    const x = r * Math.cos(th);
+    const zFlat = r * Math.sin(th);
+    // incline the orbital plane about the x-axis
+    const y = -zFlat * Math.sin(incl);
+    const z = zFlat * Math.cos(incl);
+    pts.push(new THREE.Vector3(x, y, z));
+  }
+  return pts;
+}
+
+const OrbitView = ({
+  props,
+}: RendererProps<{ bodies: OrbitBody[]; height?: number }>) => {
+  const mountRef = useRef<HTMLDivElement>(null);
+  const bodies = (Array.isArray(props.bodies) ? props.bodies : []).slice(
+    0,
+    MAX_BODIES,
+  );
+  const height = props.height ?? 440;
+  // Re-init the scene only when the data or size actually changes.
+  const bodiesKey = JSON.stringify(bodies);
+
+  useEffect(() => {
+    const mount = mountRef.current;
+    if (!mount) return;
+    let raf = 0;
+    let renderer: THREE.WebGLRenderer | null = null;
+    const disposables: { dispose: () => void }[] = [];
+    const cleanups: (() => void)[] = [];
+
+    try {
+      const width = mount.clientWidth || 640;
+      const scene = new THREE.Scene();
+
+      const camera = new THREE.PerspectiveCamera(55, width / height, 0.1, 8000);
+      // Spherical camera controls (drag to orbit, wheel to zoom).
+      let camRadius = 360;
+      let camTheta = Math.PI * 0.25; // around Y
+      let camPhi = Math.PI * 0.34; // from Y axis
+      const applyCamera = () => {
+        const p = Math.min(Math.max(camPhi, 0.15), Math.PI - 0.15);
+        camera.position.set(
+          camRadius * Math.sin(p) * Math.cos(camTheta),
+          camRadius * Math.cos(p),
+          camRadius * Math.sin(p) * Math.sin(camTheta),
+        );
+        camera.lookAt(0, 0, 0);
+      };
+      applyCamera();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(width, height);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      mount.appendChild(renderer.domElement);
+
+      // Lights
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      const sunLight = new THREE.PointLight(0xffffff, 2.2, 0, 0);
+      scene.add(sunLight);
+
+      // Spinning group so the scene feels alive when idle.
+      const root = new THREE.Group();
+      scene.add(root);
+
+      // Sun
+      const sunGeo = new THREE.SphereGeometry(9, 32, 32);
+      const sunMat = new THREE.MeshBasicMaterial({ color: 0xffcc33 });
+      disposables.push(sunGeo, sunMat);
+      root.add(new THREE.Mesh(sunGeo, sunMat));
+
+      const addOrbit = (
+        points: THREE.Vector3[],
+        color: number,
+        opacity = 1,
+      ) => {
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        const mat = new THREE.LineBasicMaterial({
+          color,
+          transparent: opacity < 1,
+          opacity,
+        });
+        disposables.push(geo, mat);
+        root.add(new THREE.LineLoop(geo, mat));
+      };
+
+      // Earth's 1 AU orbit + a marker.
+      addOrbit(keplerEllipsePoints(1, 0, 0), EARTH_COLOR, 0.9);
+      const earthGeo = new THREE.SphereGeometry(3, 16, 16);
+      const earthMat = new THREE.MeshStandardMaterial({
+        color: EARTH_COLOR,
+        emissive: 0x16314f,
+      });
+      disposables.push(earthGeo, earthMat);
+      const earth = new THREE.Mesh(earthGeo, earthMat);
+      earth.position.set(AU, 0, 0);
+      root.add(earth);
+
+      // Asteroid orbits + a marker at each perihelion.
+      for (const b of bodies) {
+        const color = b.hazardous ? HAZARD_COLOR : SAFE_COLOR;
+        const pts = keplerEllipsePoints(
+          b.semiMajorAxisAu,
+          b.eccentricity,
+          b.inclinationDeg,
+        );
+        addOrbit(pts, color, 0.7);
+        const dotGeo = new THREE.SphereGeometry(2, 12, 12);
+        const dotMat = new THREE.MeshBasicMaterial({ color });
+        disposables.push(dotGeo, dotMat);
+        const dot = new THREE.Mesh(dotGeo, dotMat);
+        if (pts[0]) dot.position.copy(pts[0]);
+        root.add(dot);
+      }
+
+      // ── Pointer / wheel interaction ─────────────────────────────────
+      const el = renderer.domElement;
+      let dragging = false;
+      let lastX = 0;
+      let lastY = 0;
+      const onDown = (e: PointerEvent) => {
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        el.setPointerCapture(e.pointerId);
+      };
+      const onMove = (e: PointerEvent) => {
+        if (!dragging) return;
+        camTheta -= (e.clientX - lastX) * 0.006;
+        camPhi -= (e.clientY - lastY) * 0.006;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        applyCamera();
+      };
+      const onUp = (e: PointerEvent) => {
+        dragging = false;
+        try {
+          el.releasePointerCapture(e.pointerId);
+        } catch {
+          /* pointer may already be released */
+        }
+      };
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        camRadius = Math.min(Math.max(camRadius + e.deltaY * 0.4, 120), 1400);
+        applyCamera();
+      };
+      el.addEventListener("pointerdown", onDown);
+      el.addEventListener("pointermove", onMove);
+      el.addEventListener("pointerup", onUp);
+      el.addEventListener("wheel", onWheel, { passive: false });
+      el.style.cursor = "grab";
+      cleanups.push(() => {
+        el.removeEventListener("pointerdown", onDown);
+        el.removeEventListener("pointermove", onMove);
+        el.removeEventListener("pointerup", onUp);
+        el.removeEventListener("wheel", onWheel);
+      });
+
+      const animate = () => {
+        raf = requestAnimationFrame(animate);
+        root.rotation.y += 0.0009;
+        renderer!.render(scene, camera);
+      };
+      animate();
+
+      const ro = new ResizeObserver(() => {
+        const w = mount.clientWidth || width;
+        camera.aspect = w / height;
+        camera.updateProjectionMatrix();
+        renderer!.setSize(w, height);
+      });
+      ro.observe(mount);
+      cleanups.push(() => ro.disconnect());
+    } catch (err) {
+      console.warn("[OrbitView] scene init failed:", err);
+    }
+
+    return () => {
+      cancelAnimationFrame(raf);
+      for (const c of cleanups) c();
+      for (const d of disposables) {
+        try {
+          d.dispose();
+        } catch {
+          /* best-effort */
+        }
+      }
+      if (renderer) {
+        renderer.dispose();
+        if (renderer.domElement.parentNode === mount) {
+          mount.removeChild(renderer.domElement);
+        }
+      }
+    };
+  }, [bodiesKey, height]);
+
+  return (
+    <div className="relative w-full">
+      <div
+        ref={mountRef}
+        style={{ width: "100%", height }}
+        className="rounded-[var(--radius)] border border-[var(--line)] bg-[#05070b] overflow-hidden touch-none"
+      />
+      <div className="absolute top-3 left-3 flex flex-col gap-1 pointer-events-none text-[11px]">
+        <span className="mono uppercase tracking-[0.14em] text-[var(--ink)]/80">
+          heliocentric · drag to orbit · scroll to zoom
+        </span>
+        <span className="flex items-center gap-3 mono text-[10.5px]">
+          <span className="flex items-center gap-1.5">
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ background: "#6ea8ff" }}
+            />
+            Earth
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ background: "#4ade80" }}
+            />
+            asteroid
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="w-2 h-2 rounded-full"
+              style={{ background: "#ff5d5d" }}
+            />
+            hazardous
+          </span>
+        </span>
+      </div>
+    </div>
+  );
+};
+
 function Slot({ render }: { render: ReactNode }) {
   return <>{render}</>;
 }
@@ -1068,6 +1338,7 @@ export const renderers = {
   LineChart,
   DonutChart,
   ScatterChart,
+  OrbitView,
   DataTable,
   Button,
   ChoiceChips,

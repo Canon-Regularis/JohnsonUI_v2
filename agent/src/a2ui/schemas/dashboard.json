@@ -103,8 +103,8 @@
   {
     "id": "trend-section",
     "component": "Section",
-    "eyebrow": "TREND",
-    "title": "Monthly performance",
+    "eyebrow": "APPROACHES / YEAR",
+    "title": "Close approaches by year",
     "child": "trend-card"
   },
   {
@@ -121,8 +121,8 @@
   {
     "id": "share-section",
     "component": "Section",
-    "eyebrow": "SHARE OF TOTAL",
-    "title": "Breakdown",
+    "eyebrow": "POPULATION",
+    "title": "By size class",
     "child": "share-card"
   },
   {
@@ -140,8 +140,8 @@
   {
     "id": "table-section",
     "component": "Section",
-    "eyebrow": "DETAIL",
-    "title": "Top rows",
+    "eyebrow": "THREAT BOARD",
+    "title": "Closest upcoming approaches",
     "child": "table-card"
   },
   {
@@ -153,10 +153,10 @@
     "id": "table",
     "component": "DataTable",
     "columns": [
-      { "key": "name", "label": "Name", "align": "left" },
-      { "key": "category", "label": "Category", "align": "left" },
-      { "key": "value", "label": "Value", "align": "right" },
-      { "key": "delta", "label": "Δ", "align": "right" }
+      { "key": "name", "label": "Asteroid", "align": "left" },
+      { "key": "category", "label": "Class", "align": "left" },
+      { "key": "value", "label": "Miss dist", "align": "right" },
+      { "key": "delta", "label": "Velocity", "align": "right" }
     ],
     "rows": { "path": "/rows" }
   }

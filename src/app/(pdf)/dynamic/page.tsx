@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import { z } from "zod";
 import {
   CopilotChat,
@@ -12,21 +12,22 @@ import { SurfaceCanvas, CanvasEmptyState } from "@/components/pdf-analyst/Surfac
 import { FilteredUserMessage } from "@/components/pdf-analyst/FilteredUserMessage";
 import { FilteredAssistantMessage } from "@/components/pdf-analyst/FilteredAssistantMessage";
 import { Split } from "@/components/pdf-analyst/Split";
-import { extractPdfText } from "@/lib/pdf";
+import { seedSurface } from "@/a2ui/seed";
 
 const AGENT_ID = "dynamic_agent";
 
 export default function DynamicPage() {
   const { agent: _agent } = useAgent({ agentId: AGENT_ID });
-  const [loaded, setLoaded] = useState<{
-    filename: string;
-    pages: number;
-    chars: number;
-  } | null>(null);
 
-  // generate_a2ui (the Python tool) is now the surface producer. Show a
-  // small pill while it streams, hide on complete (the rendered surface
-  // appears in the canvas. chat doesn't need a record of it).
+  // Open with an example surface so the canvas isn't blank — asking a
+  // question replaces it with the agent's freshly composed surface.
+  useEffect(() => {
+    seedSurface(AGENT_ID);
+  }, []);
+
+  // generate_a2ui (the Python tool) is the surface producer. Show a small
+  // pill while it streams, hide on complete (the rendered surface appears in
+  // the canvas; chat doesn't need a record of it).
   useRenderTool({
     name: "generate_a2ui",
     parameters: z.any(),
@@ -44,15 +45,12 @@ export default function DynamicPage() {
     },
   });
 
-  // query_pdf: render nothing, ever. The "Composing a surface…" pill
+  // query_asteroids: render nothing, ever. The "Composing a surface…" pill
   // from generate_a2ui is the only chat signal we want. We override the
-  // default tool card here (instead of leaving it) for two reasons:
-  // 1) the default tool card keeps args/result in the DOM and our args
-  //    are the full PDF body, which is noisy.
-  // 2) when the agent calls query_pdf more than once per turn, the
-  //    default would render multiple pills back to back.
+  // default tool card here so its args/result (the dataset JSON) stay out of
+  // the DOM.
   useRenderTool({
-    name: "query_pdf",
+    name: "query_asteroids",
     parameters: z.any(),
     render: () => <></>,
   });
@@ -67,20 +65,6 @@ export default function DynamicPage() {
         initialLeftFraction={0.32}
         left={
           <div className="h-full flex flex-col copilot-chat-wrapper">
-            {loaded && (
-              <div className="shrink-0 px-4 py-2 border-b border-[var(--line)] flex items-center gap-2 bg-[color-mix(in_oklab,var(--lilac)_8%,var(--surface))]">
-                <span className="w-1.5 h-1.5 rounded-full bg-[var(--lilac)]" />
-                <span className="mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--ink)]">
-                  loaded
-                </span>
-                <span className="text-[12.5px] font-medium text-[var(--ink)] truncate">
-                  {loaded.filename}
-                </span>
-                <span className="text-[11px] text-[var(--ink)] ml-auto">
-                  {loaded.pages} pg · {Math.round(loaded.chars / 1000)}k chars
-                </span>
-              </div>
-            )}
             <div className="flex-1 min-h-0">
               <CopilotChat
                 agentId={AGENT_ID}
@@ -90,35 +74,11 @@ export default function DynamicPage() {
                     assistantMessage: FilteredAssistantMessage,
                   },
                 }}
-                attachments={{
-                  enabled: true,
-                  accept: "application/pdf",
-                  maxSize: 20 * 1024 * 1024,
-                  onUpload: async (file) => {
-                    const { text, pages } = await extractPdfText(file);
-                    setLoaded({
-                      filename: file.name,
-                      pages,
-                      chars: text.length,
-                    });
-                    return {
-                      type: "data",
-                      value: text.slice(0, 60_000),
-                      mimeType: "text/plain",
-                      metadata: {
-                        filename: file.name,
-                        pages,
-                        originalMime: "application/pdf",
-                      },
-                    };
-                  },
-                  onUploadFailed: (err) =>
-                    console.warn("[pdf upload failed]", err),
-                }}
                 labels={{
-                  chatInputPlaceholder: "Attach a PDF (📎), then ask anything…",
+                  chatInputPlaceholder:
+                    "Ask anything about the asteroids…",
                   welcomeMessageText:
-                    "Attach a PDF using the 📎 button, then ask any question.",
+                    "Ask any question about the near-Earth-asteroid dataset — e.g. “Plot velocity vs miss distance” or “Which are the most hazardous?”",
                 }}
               />
             </div>
@@ -130,10 +90,10 @@ export default function DynamicPage() {
             emptyState={
               <CanvasEmptyState
                 title="Canvas is empty"
-                subtitle="Attach a PDF in the chat and ask anything. The agent will compose a UI surface using the catalog and render it here."
+                subtitle="Ask anything about the asteroid dataset. The agent composes a UI surface from the catalog — a chart, a table, or a written explainer — and renders it here."
                 hint={
                   <span className="mono text-[11px] uppercase tracking-[0.14em] text-[var(--ink)]">
-                    try: “Show me the revenue trend.”
+                    try: “Show close approaches per year.”
                   </span>
                 }
               />

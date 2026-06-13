@@ -7,19 +7,26 @@
 // logo asset in public/brand/, rename the product, rewrite the hero copy.
 // Brand tints come from src/app/(pdf)/pdf-analyst.css (Seam #1).
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-import Image from "next/image";
 import Link from "next/link";
 
 export function Logo({ size = 22 }: { size?: number }) {
   return (
-    <Image
-      src="/brand/logo-full.svg"
-      alt="CopilotKit"
-      width={size * 5}
-      height={size}
-      priority
-      style={{ height: size, width: "auto" }}
-    />
+    <span
+      className="inline-flex items-center gap-2 font-semibold tracking-tight text-[var(--ink)]"
+      style={{ fontSize: size * 0.82 }}
+    >
+      <span
+        aria-hidden
+        className="inline-block rounded-full"
+        style={{
+          width: size * 0.5,
+          height: size * 0.5,
+          background: "var(--brand-gradient)",
+          boxShadow: "0 0 12px 1px color-mix(in oklab, var(--lilac) 60%, transparent)",
+        }}
+      />
+      Asteroid Mission Control
+    </span>
   );
 }
 

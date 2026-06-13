@@ -36,7 +36,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from src.offline_sample import OFFLINE_DASHBOARD_ARGS
 
 _TOOL_NAME = "render_dashboard"
-_FINAL_TEXT = "Offline mode — showing a sample Tesla Q3 FY24 dashboard."
+_FINAL_TEXT = "Offline mode — showing the bundled asteroid mission-control dashboard."
 
 
 class OfflineDashboardModel(BaseChatModel):
